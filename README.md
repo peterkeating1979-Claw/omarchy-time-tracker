@@ -11,6 +11,7 @@ Track work by company and project from the Omarchy bar. Start a timer, get back 
 - Review daily, weekly, monthly, and yearly reports for all companies, one company, or one project.
 - Export PDFs with total time, company totals, project breakdowns, daily detail, and page numbers.
 - Open the latest PDF directly from the popup.
+- Export Markdown reports and session records to an Obsidian vault, and open the exported note.
 - Store everything locally in SQLite. No account, cloud service, or Codex installation required.
 
 [View an example PDF](docs/sample-report.pdf) (fictional companies and hours).
@@ -56,6 +57,22 @@ omarchy bar move peter.time-tracker --section right --index 0
 Only one timer can run at once. It continues while applications are closed or the computer is asleep, until you stop it. No per-second background writes are needed; elapsed time comes from the saved start timestamp.
 
 Weeks start Monday. Monthly and yearly reports use calendar periods. Overnight sessions are split into local days. Active timers are included through the report snapshot time and marked provisional in the PDF. Exports never overwrite an existing file.
+
+## Obsidian export
+
+Under **Obsidian vault** in the popup, enter the full path to your existing local vault folder and click **Save vault**. Choose the same period and company/project scope used for reports, then click **Export to Obsidian**. **Open note** opens the saved Markdown file using Obsidian's registered URI handler.
+
+Each export creates a new note in `<vault>/Time Tracker/` with properties, company/project totals, daily detail, and individual session IDs, timestamps, notes, and time within the selected period. Running timers are included as provisional snapshots without being stopped. Re-exporting creates another snapshot; it does not synchronize or overwrite an earlier one.
+
+The vault must already exist and follow the same local storage ownership rules as the database. A symlink at the `Time Tracker` export subfolder is rejected. The plugin does not read your existing notes or change `.obsidian` configuration. **Clear** forgets the saved vault and preserves exported notes. The vault's own sync service may synchronize the new notes according to your existing settings.
+
+No additional Python dependency or Obsidian community plugin is required. Markdown export works while Obsidian is closed; **Open note** requires Obsidian and its `obsidian://` handler to be installed.
+
+```bash
+python3 tracker.py vault "$HOME/Documents/My Vault"
+python3 tracker.py report monthly --company 'Acme' --obsidian
+python3 tracker.py vault --clear
+```
 
 ## Timezone and command line
 

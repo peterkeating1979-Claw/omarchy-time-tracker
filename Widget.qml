@@ -17,6 +17,8 @@ Item {
     property string errorText: ""
     property var reportData: null
     property string pdfPath: ""
+    property string obsidianPath: ""
+    property string obsidianUri: ""
     property real now: Date.now()
     readonly property bool vertical: bar ? bar.vertical : false
     readonly property real elapsed: trackerState.running ? Math.max(0, (now - Date.parse(trackerState.running.start)) / 1000) : 0
@@ -70,6 +72,11 @@ Item {
                     root.now = Date.now()
                     if (data.result && data.result.period) root.reportData = data.result
                     if (data.result && data.result.pdf_path) root.pdfPath = data.result.pdf_path
+                    if (data.result && data.result.obsidian_vault !== undefined) popup.setVault(data.result.obsidian_vault)
+                    if (data.result && data.result.obsidian_path) {
+                        root.obsidianPath = data.result.obsidian_path
+                        root.obsidianUri = data.result.obsidian_uri
+                    }
                 } catch (e) { root.errorText = "Unable to read timer data: " + e }
             }
         }

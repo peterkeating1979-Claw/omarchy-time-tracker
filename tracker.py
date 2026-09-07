@@ -214,12 +214,22 @@ def execute(db, args, now=None):
         return dict(running=session_detail(db, row, now) if row else None,
                     selected_company=selected[0] if selected else None,
                     selected_project=selected_project[0] if selected_project else None,
+                    obsidian_vault=setting(db, 'obsidian_vault') or '',
                     timezone=setting(db, 'timezone'))
+    if cmd == 'vault':
+        if args.clear:
+            setting(db, 'obsidian_vault', '')
+        elif args.path:
+            from obsidian_export import vault_directory
+            setting(db, 'obsidian_vault', str(vault_directory(args.path)))
+        return dict(obsidian_vault=setting(db, 'obsidian_vault') or '')
     if cmd == 'timezone':
         ZoneInfo(args.name)
         setting(db, 'timezone', args.name)
         return dict(timezone=args.name)
     if cmd == 'report':
+        if args.output and not args.pdf:
+            raise ValueError('--output requires --pdf.')
         result = report(db, args, now)
         if args.pdf:
             try:
@@ -227,8 +237,12 @@ def execute(db, args, now=None):
             except ImportError as exc:
                 raise ValueError('PDF export requires ReportLab. Install it with: sudo pacman -S --needed python-reportlab') from exc
             result['pdf_path'] = export_pdf(result, args.output, args.company, args.project)
-        elif args.output:
-            raise ValueError('--output requires --pdf.')
+        elif args.obsidian:
+            from obsidian_export import export_obsidian
+            vault = setting(db, 'obsidian_vault')
+            if not vault:
+                raise ValueError('Save your Obsidian vault folder before exporting.')
+            result.update(export_obsidian(db, result, vault, now, args.company, args.project))
         return result
     if cmd == 'records':
         if not 1 <= args.limit <= 10000:
@@ -272,11 +286,17 @@ def parser():
         if cmd == 'report':
             child.add_argument('period', choices=['daily', 'weekly', 'monthly', 'yearly'])
             child.add_argument('--date', help='Any date in the requested period, YYYY-MM-DD')
-            child.add_argument('--pdf', action='store_true', help='Export a styled PDF report')
+            formats = child.add_mutually_exclusive_group()
+            formats.add_argument('--pdf', action='store_true', help='Export a styled PDF report')
+            formats.add_argument('--obsidian', action='store_true', help='Export Markdown records to the saved Obsidian vault')
             child.add_argument('--output', help='PDF destination (default: Documents/Time Tracker Reports)')
     sub.add_parser('stop')
     sub.add_parser('status')
     sub.add_parser('timezone').add_argument('name')
+    vault = sub.add_parser('vault')
+    destination = vault.add_mutually_exclusive_group()
+    destination.add_argument('path', nargs='?', help='Existing local Obsidian vault folder')
+    destination.add_argument('--clear', action='store_true', help='Forget the saved vault without removing notes')
     return p
 
 

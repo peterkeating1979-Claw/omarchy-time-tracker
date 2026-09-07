@@ -24,6 +24,8 @@ Version 1.0.1 includes these protections:
 
 ## Limits
 
+Obsidian export (1.1.0) is an explicit local write to a user-selected, existing vault. Notes are new owner-only Markdown files published atomically without replacing existing files. The fixed export subfolder cannot be a symlink. Text fields are escaped for Markdown/HTML and properties use JSON-encoded YAML scalars. Existing vault notes and configuration are not read or changed. Opening a note launches an encoded `obsidian://open?path=...` URI only after a click. Any synchronization is controlled by the vault's existing software, not this plugin.
+
 These protections do not defend against root, a compromised logged-in account, malicious same-user software, or a compromised plugin source/Python/Qt/PDF dependency. Such software can read the user's records and change files within the user's directories. Records are not encrypted at rest. Users who need at-rest protection should use appropriate operating-system storage encryption.
 
 Imported or manually edited SQLite databases are not supported as an untrusted interchange format. Existing long names are preserved; the new input limits apply to new additions. Backups and older exported PDFs retain their existing permissions. A dependency advisory scan is a point-in-time check and cannot prove the absence of vulnerabilities.

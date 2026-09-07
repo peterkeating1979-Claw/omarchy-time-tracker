@@ -14,12 +14,14 @@ PopupWindow {
     property bool busy: false
     property string companyName: ""
     property string projectName: ""
-    function showReport(exportPdf) {
+    function setVault(path) { vaultPath.text = path }
+    function showReport(format) {
         var args = ["report", period.currentText.toLowerCase()]
         if (reportDate.text.trim()) args.push("--date", reportDate.text.trim())
         if (scope.currentIndex > 0) args.push("--company", popup.companyName)
         if (scope.currentIndex === 2) args.push("--project", popup.projectName)
-        if (exportPdf) args.push("--pdf")
+        if (format === "pdf") args.push("--pdf")
+        if (format === "obsidian") args.push("--obsidian")
         owner.request(args)
     }
     readonly property var anchorWindow: anchorItem ? anchorItem.QsWindow.window : null
@@ -40,6 +42,7 @@ PopupWindow {
             bar.requestPopout(owner)
             companyName = owner.trackerState.selected_company || (owner.companies.length ? owner.companies[0].name : "")
             projectName = owner.trackerState.selected_project || ""
+            vaultPath.text = owner.trackerState.obsidian_vault || ""
         } else if (bar.activePopout === owner) bar.releasePopout(owner)
     }
     HyprlandFocusGrab {
@@ -166,7 +169,7 @@ PopupWindow {
                     Button {
                         text: "Show report"
                         enabled: !popup.busy && (scope.currentIndex === 0 || popup.companyName !== "") && (scope.currentIndex !== 2 || popup.projectName !== "")
-                        onClicked: popup.showReport(false)
+                        onClicked: popup.showReport("")
                     }
                 }
                 RowLayout {
@@ -175,7 +178,7 @@ PopupWindow {
                         text: "Export PDF"
                         Layout.fillWidth: true
                         enabled: !popup.busy && (scope.currentIndex === 0 || popup.companyName !== "") && (scope.currentIndex !== 2 || popup.projectName !== "")
-                        onClicked: popup.showReport(true)
+                        onClicked: popup.showReport("pdf")
                     }
                     Button {
                         text: "Open PDF"
@@ -188,6 +191,39 @@ PopupWindow {
                     text: "Saved: " + owner.pdfPath
                     color: popup.fg; textFormat: Text.PlainText; wrapMode: Text.WrapAnywhere; Layout.fillWidth: true
                     font.pixelSize: 11
+                }
+                Label { text: "Obsidian vault"; color: popup.fg; font.bold: true }
+                RowLayout {
+                    Layout.fillWidth: true
+                    TextField { id: vaultPath; placeholderText: "Full path to your vault folder"; maximumLength: 4096; Layout.fillWidth: true }
+                    Button {
+                        text: "Save vault"
+                        enabled: !popup.busy && vaultPath.text.trim() !== ""
+                        onClicked: owner.request(["vault", vaultPath.text.trim()])
+                    }
+                    Button {
+                        text: "Clear"
+                        enabled: !popup.busy && !!owner.trackerState.obsidian_vault
+                        onClicked: { owner.request(["vault", "--clear"]); vaultPath.clear() }
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        text: "Export to Obsidian"
+                        Layout.fillWidth: true
+                        enabled: !popup.busy && !!owner.trackerState.obsidian_vault && vaultPath.text.trim() === owner.trackerState.obsidian_vault && (scope.currentIndex === 0 || popup.companyName !== "") && (scope.currentIndex !== 2 || popup.projectName !== "")
+                        onClicked: popup.showReport("obsidian")
+                    }
+                    Button {
+                        text: "Open note"
+                        visible: owner.obsidianUri !== ""
+                        onClicked: { Quickshell.execDetached(["/usr/bin/xdg-open", owner.obsidianUri]); popup.open = false }
+                    }
+                }
+                Label {
+                    Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText; color: popup.fg; font.pixelSize: 11
+                    text: owner.obsidianPath ? "Saved: " + owner.obsidianPath : "Creates a new Markdown snapshot in the vault's Time Tracker folder."
                 }
                 Label {
                     Layout.fillWidth: true; wrapMode: Text.WordWrap; textFormat: Text.PlainText; color: popup.fg
