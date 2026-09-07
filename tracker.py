@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""Persistent local work timer. Python 3.10+, no third-party dependencies."""
+import argparse
+import json
+import os
+from pathlib import Path
+import sqlite3
+import sys
+from datetime import datetime, date, time, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+UTC = timezone.utc
+DEFAULT_DB = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'codex-time-tracker/tracker.sqlite3'
+
+
+def local_timezone():
+    candidates = [os.environ.get('TZ', '').lstrip(':')]
+    localtime = str(Path('/etc/localtime').resolve())
+    if '/zoneinfo/' in localtime:
+        candidates.append(localtime.split('/zoneinfo/', 1)[1])
+    for name in candidates:
+        if not name:
+            continue
+        try:
+            ZoneInfo(name)
+            return name
+        except (ValueError, ZoneInfoNotFoundError):
+            continue
+    return 'UTC'
+
+
+def connect(path):
+    path = Path(path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path, timeout=15, isolation_level=None)
+    db.row_factory = sqlite3.Row
+    db.execute('PRAGMA foreign_keys=ON')
+    db.executescript('''
+        CREATE TABLE IF NOT EXISTS companies (
+            id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE);
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id),
+            name TEXT NOT NULL COLLATE NOCASE, UNIQUE(company_id, name));
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL REFERENCES companies(id),
+            project_id INTEGER REFERENCES projects(id), start REAL NOT NULL,
+            end REAL CHECK(end >= start), note TEXT NOT NULL DEFAULT '');
+        CREATE UNIQUE INDEX IF NOT EXISTS one_running_timer ON sessions((1)) WHERE end IS NULL;
+        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    ''')
+    db.execute("INSERT OR IGNORE INTO settings VALUES ('timezone', ?)", (local_timezone(),))
+    return db
+
+
+def setting(db, key, value=None):
+    if value is not None:
+        db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', (key, str(value)))
+    row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+    return row[0] if row else None
+
+
+def company(db, name=None):
+    if name is None:
+        row = db.execute('SELECT * FROM companies WHERE id=?', (setting(db, 'company'),)).fetchone()
+    else:
+        row = db.execute('SELECT * FROM companies WHERE name=? COLLATE NOCASE', (name.strip(),)).fetchone()
+    if row is None:
+        raise ValueError('Company not found. Add or select a company first.')
+    return row
+
+
+def project(db, cid, name):
+    if name is None:
+        return None
+    row = db.execute('SELECT * FROM projects WHERE company_id=? AND name=? COLLATE NOCASE', (cid, name.strip())).fetchone()
+    if row is None:
+        raise ValueError('Project not found for this company. Add it first.')
+    return row['id']
+
+
+def active(db):
+    return db.execute('SELECT * FROM sessions WHERE end IS NULL').fetchone()
+
+
+def session_detail(db, row, now):
+    result = dict(row)
+    result['company'] = db.execute('SELECT name FROM companies WHERE id=?', (row['company_id'],)).fetchone()[0]
+    result['project'] = db.execute('SELECT name FROM projects WHERE id=?', (row['project_id'],)).fetchone()[0] if row['project_id'] else None
+    result['seconds'] = max(0, (row['end'] if row['end'] is not None else now) - row['start'])
+    tz = ZoneInfo(setting(db, 'timezone'))
+    for key in ('start', 'end'):
+        result[key] = datetime.fromtimestamp(row[key], tz).isoformat() if row[key] is not None else None
+    return result
+
+
+def period_bounds(period, day):
+    if period == 'daily':
+        return day, day + timedelta(days=1)
+    if period == 'weekly':
+        start = day - timedelta(days=day.weekday())
+        return start, start + timedelta(days=7)
+    if period == 'monthly':
+        start = day.replace(day=1)
+        return start, date(day.year + (day.month == 12), day.month % 12 + 1, 1)
+    return date(day.year, 1, 1), date(day.year + 1, 1, 1)
+
+
+def report(db, args, now):
+    tz = ZoneInfo(setting(db, 'timezone'))
+    day = date.fromisoformat(args.date) if args.date else datetime.fromtimestamp(now, tz).date()
+    first, last = period_bounds(args.period, day)
+    lo = datetime.combine(first, time.min, tz).timestamp()
+    hi = datetime.combine(last, time.min, tz).timestamp()
+    cid = company(db, args.company)['id'] if args.company else None
+    if args.project and cid is None:
+        raise ValueError('--project requires --company for reports.')
+    pid = project(db, cid, args.project) if args.project else None
+    daily = {}
+    running_included = False
+    for row in db.execute('''SELECT s.*, c.name AS company, p.name AS project FROM sessions s
+            JOIN companies c ON c.id=s.company_id LEFT JOIN projects p ON p.id=s.project_id
+            WHERE s.start < ? AND COALESCE(s.end, ?) > ?''', (hi, now, lo)):
+        if cid is not None and row['company_id'] != cid:
+            continue
+        if pid is not None and row['project_id'] != pid:
+            continue
+        start, end = max(lo, row['start']), min(hi, row['end'] if row['end'] is not None else now)
+        running_included |= row['end'] is None and end > start
+        while start < end:
+            local_day = datetime.fromtimestamp(start, tz).date()
+            midnight = datetime.combine(local_day + timedelta(days=1), time.min, tz).timestamp()
+            stop = min(end, midnight)
+            key = (local_day.isoformat(), row['company'], row['project'])
+            daily[key] = daily.get(key, 0) + stop - start
+            start = stop
+    rows = [dict(date=d, company=c, project=p, seconds=round(s, 3), hours=round(s/3600, 6))
+            for (d, c, p), s in sorted(daily.items(), key=lambda x: (x[0][0], x[0][1], x[0][2] or ''))]
+    totals = {}
+    for (_, c, p), seconds in daily.items():
+        totals[c, p] = totals.get((c, p), 0) + seconds
+    companies = {}
+    for (c, _), seconds in totals.items():
+        companies[c] = companies.get(c, 0) + seconds
+    return dict(period=args.period, start=first.isoformat(), end_exclusive=last.isoformat(),
+                timezone=str(tz), includes_running_timer=running_included,
+                total_seconds=round(sum(daily.values()), 3), total_hours=round(sum(daily.values())/3600, 6),
+                companies=[dict(company=c, seconds=round(s, 3), hours=round(s/3600, 6)) for c, s in sorted(companies.items())],
+                projects=[dict(company=c, project=p, seconds=round(s, 3), hours=round(s/3600, 6))
+                          for (c, p), s in sorted(totals.items(), key=lambda x: (x[0][0], x[0][1] or ''))], daily=rows)
+
+
+def execute(db, args, now=None):
+    now = datetime.now(UTC).timestamp() if now is None else now
+    cmd = args.command
+    if cmd == 'add-company':
+        name = args.name.strip()
+        if not name:
+            raise ValueError('Company name cannot be blank.')
+        db.execute('INSERT INTO companies(name) VALUES (?)', (name,))
+        return dict(company(db, name))
+    if cmd == 'companies':
+        return [dict(r) for r in db.execute('SELECT * FROM companies ORDER BY name')]
+    if cmd == 'add-project':
+        cid = company(db, args.company)['id']
+        name = args.name.strip()
+        if not name:
+            raise ValueError('Project name cannot be blank.')
+        cursor = db.execute('INSERT INTO projects(company_id,name) VALUES (?,?)', (cid, name))
+        return dict(id=cursor.lastrowid, company_id=cid, name=name)
+    if cmd == 'projects':
+        cid = company(db, args.company)['id']
+        return [dict(r) for r in db.execute('SELECT * FROM projects WHERE company_id=? ORDER BY name', (cid,))]
+    if cmd == 'select':
+        c = company(db, args.company)
+        pid = project(db, c['id'], args.project)
+        setting(db, 'company', c['id'])
+        setting(db, 'project', pid or '')
+        return dict(company=c['name'], project=args.project)
+    if cmd == 'start':
+        if active(db):
+            raise ValueError('A timer is already running. Stop it before starting another.')
+        c = company(db, args.company)
+        pid = project(db, c['id'], args.project)
+        if not args.company and not args.project and not args.no_project:
+            pid = setting(db, 'project') or None
+        cursor = db.execute('INSERT INTO sessions(company_id,project_id,start,note) VALUES (?,?,?,?)', (c['id'], pid, now, args.note))
+        return session_detail(db, db.execute('SELECT * FROM sessions WHERE id=?', (cursor.lastrowid,)).fetchone(), now)
+    if cmd == 'stop':
+        row = active(db)
+        if row is None:
+            raise ValueError('No timer is running.')
+        if now < row['start']:
+            raise ValueError('System clock is before the timer start. Correct the system clock before stopping.')
+        db.execute('UPDATE sessions SET end=? WHERE id=?', (now, row['id']))
+        return session_detail(db, db.execute('SELECT * FROM sessions WHERE id=?', (row['id'],)).fetchone(), now)
+    if cmd == 'status':
+        row = active(db)
+        selected = db.execute('SELECT name FROM companies WHERE id=?', (setting(db, 'company'),)).fetchone()
+        selected_project = db.execute('SELECT name FROM projects WHERE id=?', (setting(db, 'project'),)).fetchone()
+        return dict(running=session_detail(db, row, now) if row else None,
+                    selected_company=selected[0] if selected else None,
+                    selected_project=selected_project[0] if selected_project else None,
+                    timezone=setting(db, 'timezone'))
+    if cmd == 'timezone':
+        ZoneInfo(args.name)
+        setting(db, 'timezone', args.name)
+        return dict(timezone=args.name)
+    if cmd == 'report':
+        result = report(db, args, now)
+        if args.pdf:
+            try:
+                from pdf_report import export_pdf
+            except ImportError as exc:
+                raise ValueError('PDF export requires ReportLab. Install it with: sudo pacman -S --needed python-reportlab') from exc
+            result['pdf_path'] = export_pdf(result, args.output, args.company, args.project)
+        elif args.output:
+            raise ValueError('--output requires --pdf.')
+        return result
+    if cmd == 'records':
+        cid = company(db, args.company)['id'] if args.company else None
+        rows = db.execute('SELECT * FROM sessions WHERE (? IS NULL OR company_id=?) ORDER BY start DESC LIMIT ?', (cid, cid, args.limit))
+        return [session_detail(db, r, now) for r in rows]
+
+
+def parser():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--db', default=os.environ.get('TIME_TRACKER_DB', str(DEFAULT_DB)))
+    sub = p.add_subparsers(dest='command', required=True)
+    sub.add_parser('add-company').add_argument('name')
+    sub.add_parser('companies')
+    for cmd in ('add-project', 'projects', 'select', 'start', 'records', 'report'):
+        child = sub.add_parser(cmd)
+        child.add_argument('--company')
+        if cmd == 'add-project':
+            child.add_argument('name')
+        if cmd in ('select', 'start', 'report'):
+            group = child.add_mutually_exclusive_group()
+            group.add_argument('--project')
+            if cmd == 'start':
+                group.add_argument('--no-project', action='store_true')
+        if cmd == 'select':
+            child._option_string_actions['--company'].required = True
+        if cmd == 'start':
+            child.add_argument('--note', default='')
+        if cmd == 'records':
+            child.add_argument('--limit', type=int, default=100)
+        if cmd == 'report':
+            child.add_argument('period', choices=['daily', 'weekly', 'monthly', 'yearly'])
+            child.add_argument('--date', help='Any date in the requested period, YYYY-MM-DD')
+            child.add_argument('--pdf', action='store_true', help='Export a styled PDF report')
+            child.add_argument('--output', help='PDF destination (default: Documents/Time Tracker Reports)')
+    sub.add_parser('stop')
+    sub.add_parser('status')
+    sub.add_parser('timezone').add_argument('name')
+    return p
+
+
+def main():
+    args = parser().parse_args()
+    db = None
+    try:
+        db = connect(args.db)
+        db.execute('BEGIN IMMEDIATE')
+        result = execute(db, args)
+        db.commit()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    except (ValueError, sqlite3.Error, ZoneInfoNotFoundError, OSError) as exc:
+        if db:
+            db.rollback()
+        print(json.dumps({'error': str(exc)}), file=sys.stderr)
+        return 1
+    finally:
+        if db:
+            db.close()
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
