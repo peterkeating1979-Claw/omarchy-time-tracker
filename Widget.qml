@@ -36,7 +36,7 @@ Item {
         if (worker.running) return
         worker.isAction = args.length > 0
         worker.received = false
-        worker.command = ["/usr/bin/python3", root.bridge, JSON.stringify({args: args})]
+        worker.command = ["/usr/bin/python3", "-E", "-s", "-B", root.bridge, JSON.stringify({args: args})]
         worker.running = true
     }
 
@@ -52,6 +52,10 @@ Item {
         id: worker
         property bool isAction: false
         property bool received: false
+        onRunningChanged: {
+            if (running) watchdog.restart()
+            else watchdog.stop()
+        }
         stdout: StdioCollector {
             waitForEnd: true
             onStreamFinished: {
@@ -71,6 +75,14 @@ Item {
         }
         onExited: function(exitCode) {
             if (exitCode !== 0 && !received) root.errorText = "Time Tracker could not load its data (exit " + exitCode + ")."
+        }
+    }
+    Timer {
+        id: watchdog
+        interval: 60000
+        onTriggered: {
+            worker.running = false
+            root.errorText = "Time Tracker timed out. Check status before retrying an action."
         }
     }
     Timer { interval: 5000; running: true; repeat: true; triggeredOnStart: true; onTriggered: root.refresh() }

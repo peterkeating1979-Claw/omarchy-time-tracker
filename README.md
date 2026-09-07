@@ -67,7 +67,7 @@ python3 tracker.py timezone America/Curacao
 python3 tracker.py status
 python3 tracker.py report weekly --company 'Acme' --date 2026-09-07
 python3 tracker.py report monthly --company 'Acme' --pdf
-python3 tracker.py report yearly --date 2026-01-01 --pdf --output /tmp/work-2026.pdf
+python3 tracker.py report yearly --date 2026-01-01 --pdf --output "$HOME/Documents/Time Tracker Reports/work-2026.pdf"
 ```
 
 Run `python3 tracker.py --help` to list commands. Output is JSON.
@@ -77,6 +77,10 @@ Run `python3 tracker.py --help` to list commands. Output is JSON.
 The SQLite database is stored at `$XDG_DATA_HOME/codex-time-tracker/tracker.sqlite3`, normally `~/.local/share/codex-time-tracker/tracker.sqlite3`. The historical folder name preserves compatibility with the original Codex companion; Codex is not required. `TIME_TRACKER_DB` overrides the database path, and the CLI also accepts `--db PATH` before the command.
 
 The widget polls the local database every five seconds and updates the visible clock every second. It runs the included Python bridge with an argument array, not shell-interpolated company names. **Open PDF** launches `xdg-open` only after a click. The plugin sends no telemetry or work records over the network.
+
+Version 1.0.1 restricts database and SQLite sidecar files to owner read/write (`0600`). The default data folder and new storage directories are private (`0700`). Existing database permissions are tightened on the next successful connection. Database links and non-regular files are rejected. Storage must be in a directory owned by you, with no group/other write access and trusted ancestors. For a temporary database, use a private subdirectory created by `mktemp -d`, not a predictable file directly in `/tmp`.
+
+PDF exports are owner-readable/writable and never follow an existing output symlink. Existing exported PDFs are not retroactively modified. Names are limited to 200 characters, notes to 2,000; control and bidirectional override characters are rejected. Names render as plain text in the popup. See [SECURITY.md](SECURITY.md) for the threat model and reporting instructions.
 
 To back up your records, disable the widget, make sure no tracker CLI command is running, and copy the SQLite file. Enable the widget afterward. Reports and database files are outside the plugin directory and survive updates or removal.
 
@@ -108,11 +112,12 @@ Use a test database so development does not create real work records:
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m unittest discover -s tests -v
-TIME_TRACKER_DB=/tmp/time-tracker-demo.sqlite3 python3 bridge.py '{"args":["status"]}'
+tracker_demo_dir=$(mktemp -d)
+TIME_TRACKER_DB="$tracker_demo_dir/demo.sqlite3" python3 bridge.py '{"args":["status"]}'
 omarchy plugin validate .
 ```
 
-The tests cover persistence, overlapping timers, company/project filters, midnight splitting, DST, calendar boundaries, PDF content, and overwrite protection. This repository contains source code, tests, and a fictional report preview; it includes no personal database or machine-specific binary dependencies.
+The tests cover persistence, overlapping timers, company/project filters, midnight splitting, DST, calendar boundaries, PDF content, overwrite protection, file permissions, unsafe paths, malformed requests, and input limits. This repository contains source code, tests, and a fictional report preview; it includes no personal database or machine-specific binary dependencies.
 
 ## License
 

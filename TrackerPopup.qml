@@ -95,7 +95,7 @@ PopupWindow {
                     text: owner.trackerState.running ? owner.trackerState.running.company + " · " + (owner.trackerState.running.project || "General company time") : "Choose a company and optional project below."
                 }
                 Label { text: "Company"; color: popup.fg }
-                ComboBox {
+                NameBox {
                     Layout.fillWidth: true
                     model: owner.companies.map(function(c) { return c.name })
                     currentIndex: model.indexOf(popup.companyName)
@@ -103,7 +103,7 @@ PopupWindow {
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    TextField { id: newCompany; placeholderText: "New company name"; Layout.fillWidth: true }
+                    TextField { id: newCompany; placeholderText: "New company name"; maximumLength: 200; Layout.fillWidth: true }
                     Button {
                         text: "Add"
                         enabled: !popup.busy && newCompany.text.trim().length > 0
@@ -114,14 +114,14 @@ PopupWindow {
                     }
                 }
                 Label { text: "Project"; color: popup.fg }
-                ComboBox {
+                NameBox {
                     Layout.fillWidth: true; model: popup.projectNames
                     currentIndex: Math.max(0, model.indexOf(popup.projectName))
                     onActivated: popup.projectName = currentIndex === 0 ? "" : currentText
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    TextField { id: newProject; placeholderText: "New project name"; Layout.fillWidth: true }
+                    TextField { id: newProject; placeholderText: "New project name"; maximumLength: 200; Layout.fillWidth: true }
                     Button {
                         text: "Add"
                         enabled: !popup.busy && popup.companyName !== "" && newProject.text.trim().length > 0
@@ -207,6 +207,31 @@ PopupWindow {
                     text: owner.errorText; color: Color.urgent; wrapMode: Text.WordWrap; textFormat: Text.PlainText; Layout.fillWidth: true
                 }
                 Label { text: "Timezone: " + (owner.trackerState.timezone || "Loading…"); color: popup.fg; opacity: 0.65; font.pixelSize: 11 }
+            }
+        }
+    }
+    component NameBox: ComboBox {
+        id: box
+        contentItem: Text {
+            text: box.displayText
+            textFormat: Text.PlainText
+            color: box.palette.buttonText
+            font: box.font
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        delegate: ItemDelegate {
+            id: option
+            required property var modelData
+            required property int index
+            width: box.width
+            highlighted: box.highlightedIndex === index
+            contentItem: Text {
+                text: String(option.modelData)
+                textFormat: Text.PlainText
+                color: option.palette.text
+                font: box.font
+                elide: Text.ElideRight
             }
         }
     }

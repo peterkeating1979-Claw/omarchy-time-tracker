@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
+import unicodedata
+from storage import private_file, secure_directory
 from datetime import datetime, date, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -31,9 +33,14 @@ def local_timezone():
 
 def connect(path):
     path = Path(path).expanduser()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    parent = secure_directory(path.parent, private=path.parent.absolute() == DEFAULT_DB.parent.absolute())
+    path = parent / path.name
+    private_file(path, create=True, database=True)
+    for suffix in ('-journal', '-wal', '-shm'):
+        private_file(Path(str(path) + suffix))
     db = sqlite3.connect(path, timeout=15, isolation_level=None)
     db.row_factory = sqlite3.Row
+    db.execute('PRAGMA trusted_schema=OFF')
     db.execute('PRAGMA foreign_keys=ON')
     db.executescript('''
         CREATE TABLE IF NOT EXISTS companies (
@@ -149,22 +156,28 @@ def report(db, args, now):
                           for (c, p), s in sorted(totals.items(), key=lambda x: (x[0][0], x[0][1] or ''))], daily=rows)
 
 
+def validate_text(value, label, limit, blank=False):
+    if not isinstance(value, str) or len(value) > limit:
+        raise ValueError(f'{label} must be at most {limit} characters.')
+    if any(unicodedata.category(c) in ('Cc', 'Cs') or c in '\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069' for c in value):
+        raise ValueError(f'{label} cannot contain control or bidirectional override characters.')
+    if not blank and not value.strip():
+        raise ValueError(f'{label} cannot be blank.')
+    return value.strip() if not blank else value
+
+
 def execute(db, args, now=None):
     now = datetime.now(UTC).timestamp() if now is None else now
     cmd = args.command
     if cmd == 'add-company':
-        name = args.name.strip()
-        if not name:
-            raise ValueError('Company name cannot be blank.')
+        name = validate_text(args.name, 'Company name', 200)
         db.execute('INSERT INTO companies(name) VALUES (?)', (name,))
         return dict(company(db, name))
     if cmd == 'companies':
         return [dict(r) for r in db.execute('SELECT * FROM companies ORDER BY name')]
     if cmd == 'add-project':
         cid = company(db, args.company)['id']
-        name = args.name.strip()
-        if not name:
-            raise ValueError('Project name cannot be blank.')
+        name = validate_text(args.name, 'Project name', 200)
         cursor = db.execute('INSERT INTO projects(company_id,name) VALUES (?,?)', (cid, name))
         return dict(id=cursor.lastrowid, company_id=cid, name=name)
     if cmd == 'projects':
@@ -177,6 +190,7 @@ def execute(db, args, now=None):
         setting(db, 'project', pid or '')
         return dict(company=c['name'], project=args.project)
     if cmd == 'start':
+        validate_text(args.note, 'Note', 2000, blank=True)
         if active(db):
             raise ValueError('A timer is already running. Stop it before starting another.')
         c = company(db, args.company)
@@ -217,13 +231,24 @@ def execute(db, args, now=None):
             raise ValueError('--output requires --pdf.')
         return result
     if cmd == 'records':
+        if not 1 <= args.limit <= 10000:
+            raise ValueError('Record limit must be between 1 and 10000.')
         cid = company(db, args.company)['id'] if args.company else None
         rows = db.execute('SELECT * FROM sessions WHERE (? IS NULL OR company_id=?) ORDER BY start DESC LIMIT ?', (cid, cid, args.limit))
         return [session_detail(db, r, now) for r in rows]
 
 
+class ArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args, **kwargs):
+        kwargs['allow_abbrev'] = False
+        super().__init__(*args, **kwargs)
+
+    def error(self, message):
+        raise ValueError(message)
+
+
 def parser():
-    p = argparse.ArgumentParser(description=__doc__)
+    p = ArgumentParser(description=__doc__, allow_abbrev=False)
     p.add_argument('--db', default=os.environ.get('TIME_TRACKER_DB', str(DEFAULT_DB)))
     sub = p.add_subparsers(dest='command', required=True)
     sub.add_parser('add-company').add_argument('name')
@@ -256,9 +281,9 @@ def parser():
 
 
 def main():
-    args = parser().parse_args()
     db = None
     try:
+        args = parser().parse_args()
         db = connect(args.db)
         db.execute('BEGIN IMMEDIATE')
         result = execute(db, args)

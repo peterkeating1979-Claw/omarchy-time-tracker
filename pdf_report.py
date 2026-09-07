@@ -5,6 +5,7 @@ import os
 import tempfile
 from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
+from storage import secure_directory
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
@@ -38,14 +39,14 @@ def export_pdf(report, output=None, company=None, project=None):
         normal_font, bold_font = 'TrackerSans', 'TrackerSans-Bold'
     generated = datetime.now(ZoneInfo(report['timezone']))
     if output:
-        path = Path(output).expanduser().resolve()
+        path = Path(output).expanduser().absolute()
         if path.suffix.lower() != '.pdf':
             raise ValueError('PDF output filename must end in .pdf.')
     else:
         folder = Path.home() / 'Documents' / 'Time Tracker Reports'
         path = folder / f"time-report-{report['period']}-{report['start']}-{generated.strftime('%Y%m%d-%H%M%S-%f')}.pdf"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
+    path = secure_directory(path.parent, private=output is None) / path.name
+    if os.path.lexists(path):
         raise ValueError('That PDF already exists. Choose a new filename.')
 
     body = ParagraphStyle('Body', fontName=normal_font, fontSize=9, leading=14, textColor=INK)
