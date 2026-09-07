@@ -166,11 +166,7 @@ PopupWindow {
                 RowLayout {
                     Layout.fillWidth: true
                     ComboBox { id: scope; model: ["All companies", "Selected company", "Selected project"]; Layout.fillWidth: true }
-                    Button {
-                        text: "Show report"
-                        enabled: !popup.busy && (scope.currentIndex === 0 || popup.companyName !== "") && (scope.currentIndex !== 2 || popup.projectName !== "")
-                        onClicked: popup.showReport("")
-                    }
+
                 }
                 RowLayout {
                     Layout.fillWidth: true
@@ -219,35 +215,14 @@ PopupWindow {
                         onClicked: { owner.request(["vault", "--clear"]); vaultPath.clear() }
                     }
                 }
-                RowLayout {
+                Button {
+                    text: "View Obsidian"
                     Layout.fillWidth: true
-                    Button {
-                        text: "Export to Obsidian"
-                        Layout.fillWidth: true
-                        enabled: !popup.busy && !!owner.trackerState.obsidian_vault && vaultPath.text.trim() === owner.trackerState.obsidian_vault && (scope.currentIndex === 0 || popup.companyName !== "") && (scope.currentIndex !== 2 || popup.projectName !== "")
-                        onClicked: popup.showReport("obsidian")
-                    }
-                    Button {
-                        text: "Open note"
-                        visible: owner.obsidianUri !== ""
-                        onClicked: { Quickshell.execDetached(["/usr/bin/xdg-open", owner.obsidianUri]); popup.open = false }
-                    }
-                }
-                Label {
-                    Layout.fillWidth: true; wrapMode: Text.WrapAnywhere; textFormat: Text.PlainText; color: popup.fg; font.pixelSize: 11
-                    text: owner.obsidianPath ? "Saved: " + owner.obsidianPath : "Creates a new Markdown snapshot in the vault's Time Tracker folder."
-                }
-                Label {
-                    Layout.fillWidth: true; wrapMode: Text.WordWrap; textFormat: Text.PlainText; color: popup.fg
-                    text: {
-                        var r = owner.reportData
-                        if (!r) return "Weeks start Monday. Leave date blank for the current period."
-                        var lines = [r.start + " → " + r.end_exclusive + " (end excluded)",
-                                     "Total: " + owner.duration(r.total_seconds) + (r.includes_running_timer ? " · timer running" : "")]
-                        r.companies.forEach(function(c) { lines.push(c.company + ": " + owner.duration(c.seconds)) })
-                        r.projects.forEach(function(p) { lines.push("  " + p.company + " / " + (p.project || "General") + ": " + owner.duration(p.seconds)) })
-                        r.daily.forEach(function(d) { lines.push(d.date + " · " + d.company + " / " + (d.project || "General") + ": " + owner.duration(d.seconds)) })
-                        return lines.join("\n")
+                    enabled: !!owner.trackerState.obsidian_vault
+                    onClicked: {
+                        var uri = owner.obsidianUri || "obsidian://open?path=" + encodeURIComponent(owner.trackerState.obsidian_vault)
+                        Quickshell.execDetached(["/usr/bin/xdg-open", uri])
+                        popup.open = false
                     }
                 }
                 Label {

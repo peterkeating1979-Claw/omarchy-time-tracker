@@ -15,7 +15,6 @@ Item {
             popup.companyName = trackerState.selected_company || companies[0].name
     }
     property string errorText: ""
-    property var reportData: null
     property string pdfPath: ""
     property string obsidianPath: ""
     property string obsidianUri: ""
@@ -71,7 +70,6 @@ Item {
                     root.companies = data.companies
                     root.projects = data.projects
                     root.now = Date.now()
-                    if (data.result && data.result.period) root.reportData = data.result
                     if (data.result && data.result.pdf_path) root.pdfPath = data.result.pdf_path
                     if (data.result && data.result.obsidian_vault !== undefined) popup.setVault(data.result.obsidian_vault)
                     if (data.result && data.result.obsidian_path) {

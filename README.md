@@ -50,7 +50,7 @@ omarchy bar move peter.time-tracker --section right --index 0
 2. Optionally add a project under that company.
 3. Click **Start timer**, then **Stop timer** when finished.
 4. Under **Reports**, choose a period and scope. Leave the date blank for the current period, or enter any date within the desired period as `YYYY-MM-DD`.
-5. Click **Show report** or **Export PDF**. Exports are saved to `~/Documents/Time Tracker Reports/`; **Open PDF** opens the latest successful export.
+5. Click **Export PDF**. Exports are saved to `~/Documents/Time Tracker Reports/`; **Open PDF** opens the latest successful export.
 
 **Save selection** remembers the company and project between popup visits. Changing the selection does not move a running timer to another company. Stop it before starting work for someone else.
 
@@ -60,13 +60,13 @@ Weeks start Monday. Monthly and yearly reports use calendar periods. Overnight s
 
 ## Obsidian export
 
-Under **Obsidian vault** in the popup, enter the full path to your existing local vault folder and click **Save vault**. Choose the same period and company/project scope used for reports, then click **Export to Obsidian**. **Open note** opens the saved Markdown file using Obsidian's registered URI handler.
+Under **Obsidian vault** in the popup, enter the full path to your existing local vault folder and click **Save vault**. Choose the same period and company/project scope used for reports, then export Markdown from the CLI if needed (see below). **View Obsidian** opens the most recently logged note, or the saved vault when no note has been logged in this session.
 
 Each export creates a new note in `<vault>/Time Tracker/` with properties, company/project totals, daily detail, and individual session IDs, timestamps, notes, and time within the selected period. Running timers are included as provisional snapshots without being stopped. Re-exporting creates another snapshot; it does not synchronize or overwrite an earlier one.
 
 The vault must already exist and follow the same local storage ownership rules as the database. A symlink at the `Time Tracker` export subfolder is rejected. The plugin does not read your existing notes or change `.obsidian` configuration. **Clear** forgets the saved vault and preserves exported notes. The vault's own sync service may synchronize the new notes according to your existing settings.
 
-No additional Python dependency or Obsidian community plugin is required. Markdown export works while Obsidian is closed; **Open note** requires Obsidian and its `obsidian://` handler to be installed.
+No additional Python dependency or Obsidian community plugin is required. Markdown export works while Obsidian is closed; **View Obsidian** requires Obsidian and its `obsidian://` handler to be installed.
 
 Enable **Log each stopped timer to Obsidian** to automatically create one completed-session note whenever you stop the clock, including stops from the CLI or Codex companion. Each note records the company, project (or general company time), start/stop timestamps, duration, timezone, and optional session note. Automatic logging is off by default and requires a saved vault. It applies to future stops, not historical sessions.
 
