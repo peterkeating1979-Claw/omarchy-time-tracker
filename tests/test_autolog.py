@@ -36,6 +36,8 @@ class AutoLogTests(unittest.TestCase):
         result=self.run_cmd('stop',now=5500)
         path=Path(result['obsidian_path'])
         content=path.read_text()
+        stopped = result['end'][:10]
+        self.assertEqual(path.name, f'{stopped} - Acme - Website.md')
         for item in ['Acme','Website','01:30:00','Homepage work','duration_seconds: 5400']:
             self.assertIn(item,content)
         self.assertIsNone(self.run_cmd('status')['running'])
@@ -45,6 +47,48 @@ class AutoLogTests(unittest.TestCase):
         self.db.execute('UPDATE obsidian_jobs SET path=NULL')
         self.assertEqual(self.run_cmd('retry-obsidian')['delivered'],1)
         self.assertEqual(len(list(path.parent.glob('*.md'))),1)
+
+    def test_repeated_sessions_and_existing_notes_get_unique_names(self):
+        self.run_cmd('auto-obsidian','on')
+        paths = []
+        for start in (100, 300, 500):
+            self.run_cmd('start','--company','Acme','--project','Website',now=start)
+            paths.append(Path(self.run_cmd('stop',now=start+100)['obsidian_path']))
+        self.assertEqual(paths[1].stem, paths[0].stem + ' (2)')
+        self.assertEqual(paths[2].stem, paths[0].stem + ' (3)')
+        self.assertEqual(len(set(paths)), 3)
+        # Unrelated notes are preserved and skipped as well.
+        existing = paths[0].with_name(paths[0].stem + ' (4).md')
+        existing.write_text('My own note')
+        self.run_cmd('start','--company','Acme','--project','Website',now=700)
+        path = Path(self.run_cmd('stop',now=800)['obsidian_path'])
+        self.assertEqual(path.stem, paths[0].stem + ' (5)')
+        self.assertEqual(existing.read_text(), 'My own note')
+
+    def test_safe_readable_unicode_names_and_no_project(self):
+        company = '../Café / Studio: [team]'
+        self.run_cmd('add-company',company)
+        self.run_cmd('auto-obsidian','on')
+        self.run_cmd('start','--company',company,now=100)
+        path = Path(self.run_cmd('stop',now=200)['obsidian_path'])
+        self.assertEqual(path.parent, self.vault/'Time Tracker')
+        self.assertIn('Café - Studio- -team', path.name)
+        self.assertTrue(path.name.endswith(' - General company time.md'))
+        from obsidian_autolog import filename_part
+        self.assertLessEqual(len(filename_part('🌴'*200).encode('utf-8')), 80)
+
+    def test_legacy_pending_job_keeps_original_filename(self):
+        self.run_cmd('auto-obsidian','on')
+        self.run_cmd('start','--company','Acme',now=100)
+        self.vault.rmdir()
+        result = self.run_cmd('stop',now=200)
+        row = self.db.execute('SELECT * FROM obsidian_jobs').fetchone()
+        payload = json.loads(row['payload'])
+        payload.pop('filename_base')
+        self.db.execute('UPDATE obsidian_jobs SET payload=?', (json.dumps(payload),))
+        self.vault.mkdir()
+        path = Path(self.run_cmd('retry-obsidian')['obsidian_path'])
+        self.assertEqual(path.name, f"{result['end'][:10]} Session {row['session_id']}-{row['job_key']}.md")
 
     def test_missing_vault_preserves_stop_and_retries_after_restart(self):
         self.run_cmd('auto-obsidian','on')

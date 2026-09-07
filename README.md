@@ -70,6 +70,8 @@ No additional Python dependency or Obsidian community plugin is required. Markdo
 
 Enable **Log each stopped timer to Obsidian** to automatically create one completed-session note whenever you stop the clock, including stops from the CLI or Codex companion. Each note records the company, project (or general company time), start/stop timestamps, duration, timezone, and optional session note. Automatic logging is off by default and requires a saved vault. It applies to future stops, not historical sessions.
 
+New session notes are named `YYYY-MM-DD - Company - Project.md`, using the local stop date. Company-only sessions use `General company time`. Additional records with the same name get `(2)`, `(3)`, and so on. Characters that are unsafe in filenames or Obsidian links are replaced, and very long names are shortened. Existing notes and older queued deliveries retain their names.
+
 The stop and a pending delivery job are saved together before writing to the vault. If the vault is unavailable, the clock remains stopped and the session is retained locally. Use **Retry logging** to deliver pending records (up to 50 per click). Retries also work after a restart and avoid duplicate notes. Pending jobs keep the original vault destination; changing the saved vault does not redirect them. Clearing the saved vault disables future automatic logs but does not delete notes or pending jobs. If a generated note was edited before an interrupted delivery was recorded as complete, the retry preserves it and asks you to move it aside.
 
 ```bash

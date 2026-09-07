@@ -1,6 +1,7 @@
 """Durable delivery of completed sessions to Obsidian."""
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import tempfile
@@ -11,9 +12,18 @@ from obsidian_export import vault_directory, text, duration
 from storage import secure_directory
 
 
+def filename_part(value):
+    # Keep readable Unicode while excluding path separators and Obsidian link syntax.
+    value = re.sub(r'[\x00-\x1f\x7f/\\:*?"<>|\[\]#^]', '-', value)
+    value = ' '.join(value.split()).strip(' .-')
+    return value.encode('utf-8')[:80].decode('utf-8', errors='ignore').rstrip(' .-') or 'Unnamed'
+
+
 def enqueue(db, session, vault, timezone):
     key = uuid4().hex
-    payload = dict(session=session, timezone=timezone)
+    base = ' - '.join((session['end'][:10], filename_part(session['company']),
+                       filename_part(session['project'] or 'General company time')))
+    payload = dict(session=session, timezone=timezone, filename_base=base)
     db.execute('INSERT INTO obsidian_jobs(session_id,job_key,vault,payload) VALUES (?,?,?,?)',
                (session['id'], key, vault, json.dumps(payload, ensure_ascii=False)))
 
@@ -50,7 +60,32 @@ def deliver(db, session_id):
         folder = secure_directory(folder)
         if folder.parent != vault:
             raise ValueError('Export folder must remain inside the selected vault.')
-        path = folder / f"{s['end'][:10]} Session {s['id']}-{job['job_key']}.md"
+        if 'filename_base' in payload:
+            # Reserve a stable name before publishing, including across crashes/retries.
+            if not db.in_transaction:
+                db.execute('BEGIN IMMEDIATE')
+            payload = json.loads(db.execute('SELECT payload FROM obsidian_jobs WHERE session_id=?',
+                                           (session_id,)).fetchone()[0])
+            if 'filename' not in payload:
+                reserved = {json.loads(row[0]).get('filename') for row in db.execute(
+                    'SELECT payload FROM obsidian_jobs WHERE vault=?', (job['vault'],))}
+                base = payload['filename_base']
+                filename = base + '.md'
+                number = 2
+                while filename in reserved or os.path.lexists(folder / filename):
+                    filename = f'{base} ({number}).md'
+                    number += 1
+                payload['filename'] = filename
+                db.execute('UPDATE obsidian_jobs SET payload=? WHERE session_id=?',
+                           (json.dumps(payload, ensure_ascii=False), session_id))
+            db.commit()
+            filename = payload['filename']
+            if Path(filename).name != filename or not filename.endswith('.md'):
+                raise ValueError('Invalid session note filename.')
+        else:
+            # Older queued jobs must retain their original retry target.
+            filename = f"{s['end'][:10]} Session {s['id']}-{job['job_key']}.md"
+        path = folder / filename
         content = session_note(payload)
         fd, temporary = tempfile.mkstemp(prefix='.time-tracker-',suffix='.tmp',dir=folder)
         try:
