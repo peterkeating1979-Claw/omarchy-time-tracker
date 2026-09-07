@@ -10,6 +10,8 @@ Item {
     property var trackerState: ({running: null, selected_company: null, selected_project: null})
     property var companies: []
     property var projects: []
+    property var records: []
+    property string recordMessage: ""
     onCompaniesChanged: {
         if (popup.open && popup.companyName === "" && companies.length > 0)
             popup.companyName = trackerState.selected_company || companies[0].name
@@ -36,6 +38,7 @@ Item {
     function request(args) {
         if (worker.running) return
         worker.isAction = args.length > 0
+        worker.action = args.length ? args[0] : ""
         worker.received = false
         worker.command = ["/usr/bin/python3", "-E", "-s", "-B", root.bridge, JSON.stringify({args: args})]
         worker.running = true
@@ -52,6 +55,7 @@ Item {
     Process {
         id: worker
         property bool isAction: false
+        property string action: ""
         property bool received: false
         onRunningChanged: {
             if (running) watchdog.restart()
@@ -70,6 +74,12 @@ Item {
                     root.companies = data.companies
                     root.projects = data.projects
                     root.now = Date.now()
+                    if (worker.action === "records") root.records = data.result
+                    if (data.result && data.result.deleted_records !== undefined) {
+                        var deletedId = data.result.deleted_id
+                        root.records = deletedId === null ? [] : root.records.filter(function(r) { return r.id !== deletedId })
+                        root.recordMessage = data.result.deleted_records + " record(s) deleted."
+                    }
                     if (data.result && data.result.pdf_path) root.pdfPath = data.result.pdf_path
                     if (data.result && data.result.obsidian_vault !== undefined) popup.setVault(data.result.obsidian_vault)
                     if (data.result && data.result.obsidian_path) {

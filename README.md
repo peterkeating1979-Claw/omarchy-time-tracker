@@ -58,6 +58,20 @@ Only one timer can run at once. It continues while applications are closed or th
 
 Weeks start Monday. Monthly and yearly reports use calendar periods. Overnight sessions are split into local days. Active timers are included through the report snapshot time and marked provisional in the PDF. Exports never overwrite an existing file.
 
+## Delete records
+
+Open **Manage records** to choose a completed session and click **Delete selected**, or use **Clear all records** to delete the entire time history across all companies. Type `DELETE` and click **Confirm deletion**. Clear-all requires the timer to be stopped. The selector shows up to 10,000 recent records; clear-all removes every record regardless of that limit.
+
+Deletion is permanent in the database. Companies, projects, selections and settings remain. Exported PDFs and Obsidian notes remain separate files; pending Obsidian jobs for deleted sessions are cancelled. Existing backups are unaffected.
+
+The CLI offers the same actions with explicit confirmation:
+
+```bash
+python3 tracker.py records
+python3 tracker.py delete-record 123 --confirm
+python3 tracker.py clear-records --confirm
+```
+
 ## Obsidian export
 
 Under **Obsidian vault** in the popup, enter the full path to your existing local vault folder and click **Save vault**. Choose the same period and company/project scope used for reports, then export Markdown from the CLI if needed (see below). **View Obsidian** opens the most recently logged note, or the saved vault when no note has been logged in this session.

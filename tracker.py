@@ -285,6 +285,31 @@ def execute(db, args, now=None):
         cid = company(db, args.company)['id'] if args.company else None
         rows = db.execute('SELECT * FROM sessions WHERE (? IS NULL OR company_id=?) ORDER BY start DESC LIMIT ?', (cid, cid, args.limit))
         return [session_detail(db, r, now) for r in rows]
+    if cmd in ('delete-record', 'clear-records'):
+        if not args.confirm:
+            raise ValueError('Deletion requires --confirm. Exported PDFs and Obsidian notes will remain.')
+        # A savepoint keeps sessions and their delivery jobs atomic, even for direct callers.
+        db.execute('SAVEPOINT delete_records')
+        try:
+            if cmd == 'clear-records':
+                if active(db):
+                    raise ValueError('Stop the running timer before clearing records.')
+                db.execute('DELETE FROM obsidian_jobs')
+                deleted = db.execute('DELETE FROM sessions').rowcount
+            else:
+                row = db.execute('SELECT * FROM sessions WHERE id=?', (args.id,)).fetchone()
+                if row is None:
+                    raise ValueError('Record not found.')
+                if row['end'] is None:
+                    raise ValueError('Stop the running timer before deleting its record.')
+                db.execute('DELETE FROM obsidian_jobs WHERE session_id=?', (args.id,))
+                deleted = db.execute('DELETE FROM sessions WHERE id=?', (args.id,)).rowcount
+            db.execute('RELEASE delete_records')
+        except Exception:
+            db.execute('ROLLBACK TO delete_records')
+            db.execute('RELEASE delete_records')
+            raise
+        return dict(deleted_records=deleted, deleted_id=args.id if cmd == 'delete-record' else None)
 
 
 class ArgumentParser(argparse.ArgumentParser):
@@ -330,6 +355,11 @@ def parser():
     sub.add_parser('timezone').add_argument('name')
     sub.add_parser('auto-obsidian').add_argument('mode', choices=['on', 'off'])
     sub.add_parser('retry-obsidian')
+    for cmd in ('delete-record', 'clear-records'):
+        child = sub.add_parser(cmd)
+        if cmd == 'delete-record':
+            child.add_argument('id', type=int)
+        child.add_argument('--confirm', action='store_true', help='Permanently delete database records and their pending Obsidian jobs; keep exported files')
     vault = sub.add_parser('vault')
     destination = vault.add_mutually_exclusive_group()
     destination.add_argument('path', nargs='?', help='Existing local Obsidian vault folder')

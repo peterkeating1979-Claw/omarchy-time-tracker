@@ -14,6 +14,10 @@ PopupWindow {
     property bool busy: false
     property string companyName: ""
     property string projectName: ""
+    property bool managingRecords: false
+    property string deletionCommand: ""
+    property int deletionId: 0
+    property string deletionLabel: ""
     function setVault(path) { vaultPath.text = path }
     function showReport(format) {
         var args = ["report", period.currentText.toLowerCase()]
@@ -38,6 +42,8 @@ PopupWindow {
     visible: open
     color: "transparent"
     onOpenChanged: {
+        deletionCommand = ""
+        deleteConfirmation.clear()
         if (open) {
             bar.requestPopout(owner)
             companyName = owner.trackerState.selected_company || (owner.companies.length ? owner.companies[0].name : "")
@@ -228,6 +234,83 @@ PopupWindow {
                 Label {
                     visible: owner.errorText !== ""
                     text: owner.errorText; color: Color.urgent; wrapMode: Text.WordWrap; textFormat: Text.PlainText; Layout.fillWidth: true
+                }
+                Button {
+                    text: popup.managingRecords ? "Hide record management" : "Manage records"
+                    Layout.fillWidth: true
+                    enabled: !popup.busy
+                    onClicked: {
+                        popup.managingRecords = !popup.managingRecords
+                        popup.deletionCommand = ""
+                        owner.recordMessage = ""
+                        if (popup.managingRecords) owner.request(["records", "--limit", "10000"])
+                    }
+                }
+                ColumnLayout {
+                    visible: popup.managingRecords
+                    Layout.fillWidth: true
+                    Label {
+                        text: "Delete database records. Companies, projects, settings, exported PDFs and Obsidian notes stay. Pending Obsidian logs for deleted records are cancelled."
+                        color: popup.fg; wrapMode: Text.WordWrap; Layout.fillWidth: true
+                    }
+                    NameBox {
+                        id: recordPicker
+                        Layout.fillWidth: true
+                        model: owner.records.filter(function(r) { return r.end !== null }).map(function(r) {
+                            return "#" + r.id + " · " + r.start.slice(0, 16).replace("T", " ") + " · " + r.company + " · " + (r.project || "General company time") + " · " + owner.duration(r.seconds)
+                        })
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Button {
+                            text: "Delete selected"
+                            enabled: !popup.busy && recordPicker.currentIndex >= 0
+                            onClicked: {
+                                var record = owner.records.filter(function(r) { return r.end !== null })[recordPicker.currentIndex]
+                                if (!record) return
+                                popup.deletionId = record.id
+                                popup.deletionLabel = recordPicker.currentText
+                                popup.deletionCommand = "delete-record"
+                                deleteConfirmation.clear()
+                            }
+                        }
+                        Button {
+                            text: "Clear all records"
+                            enabled: !popup.busy && !owner.trackerState.running && owner.records.length > 0
+                            onClicked: { popup.deletionCommand = "clear-records"; deleteConfirmation.clear() }
+                        }
+                        Button { text: "Refresh"; enabled: !popup.busy; onClicked: { popup.deletionCommand = ""; owner.request(["records", "--limit", "10000"]) } }
+                    }
+                    Label {
+                        visible: !!owner.trackerState.running
+                        text: "Stop the timer before clearing all records."
+                        color: popup.fg
+                    }
+                    ColumnLayout {
+                        visible: popup.deletionCommand !== ""
+                        Layout.fillWidth: true
+                        Label {
+                            text: (popup.deletionCommand === "clear-records" ? "Permanently delete ALL time records for every company?" : "Permanently delete " + popup.deletionLabel + "?") + " Type DELETE to confirm."
+                            color: popup.fg; wrapMode: Text.WordWrap; textFormat: Text.PlainText; Layout.fillWidth: true
+                        }
+                        RowLayout {
+                            TextField { id: deleteConfirmation; placeholderText: "DELETE"; Layout.fillWidth: true }
+                            Button {
+                                text: "Confirm deletion"
+                                enabled: !popup.busy && deleteConfirmation.text === "DELETE"
+                                onClicked: {
+                                    var args = [popup.deletionCommand]
+                                    if (popup.deletionCommand === "delete-record") args.push(String(popup.deletionId))
+                                    args.push("--confirm")
+                                    owner.request(args)
+                                    popup.deletionCommand = ""
+                                    deleteConfirmation.clear()
+                                }
+                            }
+                            Button { text: "Cancel"; onClicked: { popup.deletionCommand = ""; deleteConfirmation.clear() } }
+                        }
+                    }
+                    Label { text: owner.recordMessage; visible: text !== ""; color: popup.fg }
                 }
                 Label { text: "Timezone: " + (owner.trackerState.timezone || "Loading…"); color: popup.fg; opacity: 0.65; font.pixelSize: 11 }
             }
