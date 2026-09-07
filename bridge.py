@@ -14,7 +14,7 @@ def parse_request(raw):
     args = request.get('args', [])
     if not isinstance(args, list) or len(args) > 20 or any(not isinstance(a, str) or len(a) > 4096 for a in args):
         raise ValueError('Expected at most 20 string arguments, each at most 4096 characters.')
-    allowed = {'add-company', 'companies', 'add-project', 'projects', 'select', 'start', 'stop', 'status', 'report', 'records', 'timezone', 'vault'}
+    allowed = {'add-company', 'companies', 'add-project', 'projects', 'select', 'start', 'stop', 'status', 'report', 'records', 'timezone', 'vault', 'auto-obsidian', 'retry-obsidian'}
     if args and (args[0] not in allowed or any(a in ('-h', '--help', '--db') for a in args)):
         raise ValueError('Unsupported bar request.')
     return tracker.parser().parse_args(args) if args else None

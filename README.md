@@ -68,9 +68,16 @@ The vault must already exist and follow the same local storage ownership rules a
 
 No additional Python dependency or Obsidian community plugin is required. Markdown export works while Obsidian is closed; **Open note** requires Obsidian and its `obsidian://` handler to be installed.
 
+Enable **Log each stopped timer to Obsidian** to automatically create one completed-session note whenever you stop the clock, including stops from the CLI or Codex companion. Each note records the company, project (or general company time), start/stop timestamps, duration, timezone, and optional session note. Automatic logging is off by default and requires a saved vault. It applies to future stops, not historical sessions.
+
+The stop and a pending delivery job are saved together before writing to the vault. If the vault is unavailable, the clock remains stopped and the session is retained locally. Use **Retry logging** to deliver pending records (up to 50 per click). Retries also work after a restart and avoid duplicate notes. Pending jobs keep the original vault destination; changing the saved vault does not redirect them. Clearing the saved vault disables future automatic logs but does not delete notes or pending jobs. If a generated note was edited before an interrupted delivery was recorded as complete, the retry preserves it and asks you to move it aside.
+
 ```bash
 python3 tracker.py vault "$HOME/Documents/My Vault"
 python3 tracker.py report monthly --company 'Acme' --obsidian
+python3 tracker.py auto-obsidian on
+python3 tracker.py retry-obsidian
+python3 tracker.py auto-obsidian off
 python3 tracker.py vault --clear
 ```
 

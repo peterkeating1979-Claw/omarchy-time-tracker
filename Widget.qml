@@ -66,6 +66,7 @@ Item {
                     worker.received = true
                     if (!data.ok) { root.errorText = data.error; return }
                     if (worker.isAction) root.errorText = ""
+                    if (data.result && data.result.warning) root.errorText = data.result.warning
                     root.trackerState = data.status
                     root.companies = data.companies
                     root.projects = data.projects

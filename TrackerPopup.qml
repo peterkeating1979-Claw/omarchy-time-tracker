@@ -193,6 +193,18 @@ PopupWindow {
                     font.pixelSize: 11
                 }
                 Label { text: "Obsidian vault"; color: popup.fg; font.bold: true }
+                Switch {
+                    text: "Log each stopped timer to Obsidian"
+                    checked: owner.trackerState.obsidian_autolog === true
+                    enabled: !popup.busy && !!owner.trackerState.obsidian_vault
+                    onClicked: owner.request(["auto-obsidian", checked ? "on" : "off"])
+                }
+                RowLayout {
+                    visible: (owner.trackerState.obsidian_pending || 0) > 0
+                    Layout.fillWidth: true
+                    Label { text: (owner.trackerState.obsidian_pending || 0) + " session(s) waiting to log"; color: popup.fg; Layout.fillWidth: true }
+                    Button { text: "Retry logging"; enabled: !popup.busy; onClicked: owner.request(["retry-obsidian"]) }
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     TextField { id: vaultPath; placeholderText: "Full path to your vault folder"; maximumLength: 4096; Layout.fillWidth: true }

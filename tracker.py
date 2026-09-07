@@ -54,6 +54,9 @@ def connect(path):
             end REAL CHECK(end >= start), note TEXT NOT NULL DEFAULT '');
         CREATE UNIQUE INDEX IF NOT EXISTS one_running_timer ON sessions((1)) WHERE end IS NULL;
         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS obsidian_jobs (
+            session_id INTEGER PRIMARY KEY REFERENCES sessions(id), job_key TEXT NOT NULL UNIQUE,
+            vault TEXT NOT NULL, payload TEXT NOT NULL, path TEXT, error TEXT);
     ''')
     db.execute("INSERT OR IGNORE INTO settings VALUES ('timezone', ?)", (local_timezone(),))
     return db
@@ -206,7 +209,14 @@ def execute(db, args, now=None):
         if now < row['start']:
             raise ValueError('System clock is before the timer start. Correct the system clock before stopping.')
         db.execute('UPDATE sessions SET end=? WHERE id=?', (now, row['id']))
-        return session_detail(db, db.execute('SELECT * FROM sessions WHERE id=?', (row['id'],)).fetchone(), now)
+        result = session_detail(db, db.execute('SELECT * FROM sessions WHERE id=?', (row['id'],)).fetchone(), now)
+        if setting(db, 'obsidian_autolog') == 'on':
+            from obsidian_autolog import enqueue, deliver
+            enqueue(db, result, setting(db, 'obsidian_vault') or '', setting(db, 'timezone'))
+            # Persist the stop and its delivery job together before touching the vault.
+            db.commit()
+            result.update(deliver(db, row['id']))
+        return result
     if cmd == 'status':
         row = active(db)
         selected = db.execute('SELECT name FROM companies WHERE id=?', (setting(db, 'company'),)).fetchone()
@@ -215,10 +225,35 @@ def execute(db, args, now=None):
                     selected_company=selected[0] if selected else None,
                     selected_project=selected_project[0] if selected_project else None,
                     obsidian_vault=setting(db, 'obsidian_vault') or '',
+                    obsidian_autolog=setting(db, 'obsidian_autolog') == 'on',
+                    obsidian_pending=db.execute('SELECT count(*) FROM obsidian_jobs WHERE path IS NULL').fetchone()[0],
                     timezone=setting(db, 'timezone'))
+    if cmd == 'auto-obsidian':
+        if args.mode == 'on':
+            from obsidian_export import vault_directory
+            vault = setting(db, 'obsidian_vault')
+            if not vault:
+                raise ValueError('Save an Obsidian vault before enabling automatic logging.')
+            vault_directory(vault)
+        setting(db, 'obsidian_autolog', args.mode)
+        return dict(obsidian_autolog=args.mode == 'on')
+    if cmd == 'retry-obsidian':
+        from obsidian_autolog import deliver
+        jobs = db.execute('SELECT session_id FROM obsidian_jobs WHERE path IS NULL ORDER BY session_id LIMIT 50').fetchall()
+        db.commit()
+        results = [deliver(db, job['session_id']) for job in jobs]
+        output = dict(delivered=sum('obsidian_path' in r for r in results), attempted=len(results))
+        successful = [r for r in results if 'obsidian_path' in r]
+        if successful:
+            output.update(successful[-1])
+        failed = [r['warning'] for r in results if 'warning' in r]
+        if failed:
+            output['warning'] = failed[0]
+        return output
     if cmd == 'vault':
         if args.clear:
             setting(db, 'obsidian_vault', '')
+            setting(db, 'obsidian_autolog', 'off')
         elif args.path:
             from obsidian_export import vault_directory
             setting(db, 'obsidian_vault', str(vault_directory(args.path)))
@@ -293,6 +328,8 @@ def parser():
     sub.add_parser('stop')
     sub.add_parser('status')
     sub.add_parser('timezone').add_argument('name')
+    sub.add_parser('auto-obsidian').add_argument('mode', choices=['on', 'off'])
+    sub.add_parser('retry-obsidian')
     vault = sub.add_parser('vault')
     destination = vault.add_mutually_exclusive_group()
     destination.add_argument('path', nargs='?', help='Existing local Obsidian vault folder')

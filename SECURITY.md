@@ -24,6 +24,8 @@ Version 1.0.1 includes these protections:
 
 ## Limits
 
+Automatic Obsidian logging (1.2.0) requires an explicit opt-in and a saved vault. A completed session and its delivery job are committed before any vault write. Jobs retain a snapshot and original vault path in the private database. Generated filenames contain a random persistent job key; retries accept an existing note only if it is a regular, user-owned, single-link file with exactly matching content, opened without following symlinks. Edited or redirected notes are never overwritten. The automatic action only creates notes; it does not launch Obsidian or run vault plugins.
+
 Obsidian export (1.1.0) is an explicit local write to a user-selected, existing vault. Notes are new owner-only Markdown files published atomically without replacing existing files. The fixed export subfolder cannot be a symlink. Text fields are escaped for Markdown/HTML and properties use JSON-encoded YAML scalars. Existing vault notes and configuration are not read or changed. Opening a note launches an encoded `obsidian://open?path=...` URI only after a click. Any synchronization is controlled by the vault's existing software, not this plugin.
 
 These protections do not defend against root, a compromised logged-in account, malicious same-user software, or a compromised plugin source/Python/Qt/PDF dependency. Such software can read the user's records and change files within the user's directories. Records are not encrypted at rest. Users who need at-rest protection should use appropriate operating-system storage encryption.
